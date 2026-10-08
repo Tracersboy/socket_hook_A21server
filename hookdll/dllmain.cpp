@@ -42,7 +42,8 @@ constexpr int kLogHexMaxBytes = 256;    // 每条日志最多 dump 的字节数
 
 HINSTANCE g_hinst = nullptr;
 CRITICAL_SECTION g_cs;
-std::vector<SOCKET> g_targets;  // 已捕获的目标 SOCKET(受 g_cs 保护)
+std::vector<SOCKET> g_targets;       // 已捕获的目标 SOCKET(受 g_cs 保护)
+SOCKET g_lastActive = INVALID_SOCKET;  // 最近一次活跃/新建立的连接(受 g_cs 保护)
 
 // ---------------------------------------------------------------------------
 // 界面控件
@@ -107,6 +108,28 @@ void AddTarget(SOCKET s) {
         g_targets.push_back(s);
         LogFmt(L"[+] 捕获目标 SOCKET=0x%IX (远端端口 %hu)", s, kTargetPort);
     }
+    g_lastActive = s;  // 新建立的连接视为当前发送目标
+    LeaveCriticalSection(&g_cs);
+}
+
+void SetLastActive(SOCKET s) {
+    EnterCriticalSection(&g_cs);
+    g_lastActive = s;
+    LeaveCriticalSection(&g_cs);
+}
+
+SOCKET GetLastActive() {
+    EnterCriticalSection(&g_cs);
+    SOCKET s = g_lastActive;
+    LeaveCriticalSection(&g_cs);
+    return s;
+}
+
+void RemoveTarget(SOCKET s) {
+    EnterCriticalSection(&g_cs);
+    auto it = std::find(g_targets.begin(), g_targets.end(), s);
+    if (it != g_targets.end()) g_targets.erase(it);
+    if (g_lastActive == s) g_lastActive = INVALID_SOCKET;
     LeaveCriticalSection(&g_cs);
 }
 
@@ -137,13 +160,6 @@ bool CheckPeerPort(SOCKET s) {
     return false;
 }
 
-std::vector<SOCKET> SnapshotTargets() {
-    EnterCriticalSection(&g_cs);
-    std::vector<SOCKET> copy = g_targets;
-    LeaveCriticalSection(&g_cs);
-    return copy;
-}
-
 // ---------------------------------------------------------------------------
 // MinHook 原型与钩子
 // ---------------------------------------------------------------------------
@@ -170,33 +186,39 @@ connect_t Real_connect = nullptr;
 WSAConnect_t Real_WSAConnect = nullptr;
 
 int WSAAPI Hook_send(SOCKET s, const char* buf, int len, int flags) {
-    if (buf && len > 0 && CheckPeerPort(s))
-        LogFrame(L"C->S", reinterpret_cast<const uint8_t*>(buf), len);
-    return Real_send(s, buf, len, flags);
+    bool target = (buf && len > 0) && CheckPeerPort(s);
+    int r = Real_send(s, buf, len, flags);
+    if (target && r > 0) {
+        SetLastActive(s);
+        LogFrame(L"C->S", reinterpret_cast<const uint8_t*>(buf), r);
+    }
+    return r;
 }
 
 int WSAAPI Hook_WSASend(SOCKET s, LPWSABUF buffers, DWORD bufferCount,
                         LPDWORD numberOfBytesSent, DWORD flags,
                         LPWSAOVERLAPPED overlapped,
                         LPWSAOVERLAPPED_COMPLETION_ROUTINE completionRoutine) {
-    if (buffers && CheckPeerPort(s)) {
-        uint32_t off = 0;
+    bool target = buffers && CheckPeerPort(s);
+    int r = Real_WSASend(s, buffers, bufferCount, numberOfBytesSent, flags,
+                         overlapped, completionRoutine);
+    if (target && r == 0 && numberOfBytesSent && *numberOfBytesSent > 0) {
+        SetLastActive(s);
         for (DWORD i = 0; i < bufferCount; ++i) {
             if (buffers[i].len == 0) continue;
             LogFrame(L"C->S(WSA)", reinterpret_cast<const uint8_t*>(buffers[i].buf),
                      static_cast<int>(buffers[i].len));
-            off += buffers[i].len;
-            (void)off;
         }
     }
-    return Real_WSASend(s, buffers, bufferCount, numberOfBytesSent, flags,
-                        overlapped, completionRoutine);
+    return r;
 }
 
 int WSAAPI Hook_recv(SOCKET s, char* buf, int len, int flags) {
     int r = Real_recv(s, buf, len, flags);
-    if (r > 0 && CheckPeerPort(s))
+    if (r > 0 && CheckPeerPort(s)) {
+        SetLastActive(s);
         LogFrame(L"S->C", reinterpret_cast<const uint8_t*>(buf), r);
+    }
     return r;
 }
 
@@ -206,7 +228,9 @@ int WSAAPI Hook_WSARecv(SOCKET s, LPWSABUF buffers, DWORD bufferCount,
                         LPWSAOVERLAPPED_COMPLETION_ROUTINE completionRoutine) {
     int r = Real_WSARecv(s, buffers, bufferCount, numberOfBytesRecvd, flags,
                          overlapped, completionRoutine);
-    if (r == 0 && numberOfBytesRecvd && buffers && CheckPeerPort(s)) {
+    if (r == 0 && numberOfBytesRecvd && *numberOfBytesRecvd > 0 && buffers &&
+        CheckPeerPort(s)) {
+        SetLastActive(s);
         for (DWORD i = 0; i < bufferCount; ++i) {
             if (buffers[i].len == 0) continue;
             LogFrame(L"S->C(WSA)", reinterpret_cast<const uint8_t*>(buffers[i].buf),
@@ -287,23 +311,31 @@ void DoSendFrame() {
     LogFmt(L"发送: cmd=0x%02X type=0x%04X seq=%hu length=%u (A=%d B=%d)",
            cmd, ptype, seq, static_cast<uint32_t>(frame.size()), a, b);
 
-    std::vector<SOCKET> targets = SnapshotTargets();
-    if (targets.empty()) {
+    // 方案 3:只发给最近一次活跃的连接;发送前校验其仍然有效,失效则清理
+    SOCKET s = GetLastActive();
+    if (s == INVALID_SOCKET) {
         LogLine(L"[!] 尚未捕获目标连接(等待远端端口 10011 的 TCP 连接)...");
         return;
     }
 
-    for (SOCKET s : targets) {
-        int r = Real_send ? Real_send(s, reinterpret_cast<const char*>(frame.data()),
-                                      static_cast<int>(frame.size()), 0)
-                          : send(s, reinterpret_cast<const char*>(frame.data()),
-                                 static_cast<int>(frame.size()), 0);
-        if (r == static_cast<int>(frame.size())) {
-            LogFmt(L"[+] SOCKET=0x%IX 已发送 %zu 字节", s, frame.size());
-        } else {
-            LogFmt(L"[!] SOCKET=0x%IX 发送失败 ret=%d WSAGetLastError=%d", s, r,
-                   WSAGetLastError());
-        }
+    sockaddr_storage ss;
+    int ssLen = sizeof(ss);
+    if (getpeername(s, reinterpret_cast<sockaddr*>(&ss), &ssLen) != 0 ||
+        !SockAddrIsTarget(reinterpret_cast<const sockaddr*>(&ss))) {
+        LogLine(L"[!] 最近一次活跃的连接已失效,已将其清理;等待新的 10011 连接。");
+        RemoveTarget(s);
+        return;
+    }
+
+    int r = Real_send ? Real_send(s, reinterpret_cast<const char*>(frame.data()),
+                                  static_cast<int>(frame.size()), 0)
+                      : send(s, reinterpret_cast<const char*>(frame.data()),
+                             static_cast<int>(frame.size()), 0);
+    if (r == static_cast<int>(frame.size())) {
+        LogFmt(L"[+] SOCKET=0x%IX(最近活跃)已发送 %zu 字节", s, frame.size());
+    } else {
+        LogFmt(L"[!] SOCKET=0x%IX 发送失败 ret=%d WSAGetLastError=%d", s, r,
+               WSAGetLastError());
     }
 }
 
@@ -334,7 +366,7 @@ void CreateControls(HWND hwnd) {
     SendMessageW(btn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
     HWND hint = CreateWindowExW(0, L"STATIC",
-        L"固定: cmd=0x01 type=0x0015 seq=3 | 帧: cmd(1)+type(2)+len(4=帧总长)+checksum(4=0)+seq(2)+extra(1=0)+body(<iiii) A,B,0,0",
+        L"发送目标: 最近活跃的 10011 连接 | 固定: cmd=0x01 type=0x0015 seq=3",
         WS_CHILD | WS_VISIBLE, 100, 46, 640, 18, hwnd, nullptr, g_hinst, nullptr);
     SendMessageW(hint, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
