@@ -13,9 +13,9 @@ include(FetchContent)
 FetchContent_Declare(
     minhook
     GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
-    GIT_TAG v1.3.3
+    GIT_TAG v1.3.4  # v1.3.3 标签不含 CMakeLists.txt,会导致链接找不到 minhook.lib
 )
-set(MINHOOK_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(minhook)
 
 # 被注入的 DLL:MinHook hooks + 内嵌控制界面 + game 协议组包
