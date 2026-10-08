@@ -20,6 +20,7 @@
 
 #include <windows.h>
 #include <commctrl.h>
+#include <commdlg.h>
 #include <shellapi.h>
 #include <tlhelp32.h>
 
@@ -29,6 +30,7 @@
 #include <vector>
 
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
 
@@ -146,7 +148,7 @@ void LogLine(const wchar_t* fmt, ...) {
     GetLocalTime(&st);
     swprintf(timebuf, L"[%02u:%02u:%02u] ", st.wHour, st.wMinute, st.wSecond);
 
-    std::wstring line = timebuf + buf + L"\r\n";
+    std::wstring line = std::wstring(timebuf) + buf + L"\r\n";
     SendMessageW(g_log, EM_SETSEL, static_cast<WPARAM>(-1), static_cast<WPARAM>(-1));
     SendMessageW(g_log, EM_REPLACESEL, FALSE, reinterpret_cast<LPARAM>(line.c_str()));
 }
@@ -271,7 +273,7 @@ void InjectSelected() {
     DWORD pid = static_cast<DWORD>(li.lParam);
 
     wchar_t nameBuf[MAX_PATH] = {0};
-    ListView_GetItemTextW(g_lv, sel, 1, nameBuf, MAX_PATH);
+    ListView_GetItemText(g_lv, sel, 1, nameBuf, MAX_PATH);
 
     LogLine(L"注入 %s -> %s (PID %lu) ...", path, nameBuf, pid);
     DWORD err = 0;
@@ -295,10 +297,10 @@ void CreateControls(HWND hwnd) {
     HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     auto mk = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y,
                   int w, int h, HMENU id, DWORD ex = 0) {
-        HWND h = CreateWindowExW(ex, cls, text, style | WS_CHILD | WS_VISIBLE,
-                                 x, y, w, h, hwnd, id, g_hinst, nullptr);
-        SendMessageW(h, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-        return h;
+        HWND ctrl = CreateWindowExW(ex, cls, text, style | WS_CHILD | WS_VISIBLE,
+                                    x, y, w, h, hwnd, id, g_hinst, nullptr);
+        SendMessageW(ctrl, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        return ctrl;
     };
 
     mk(L"STATIC", L"DLL路径:", 0, 10, 13, 60, 18, nullptr);
