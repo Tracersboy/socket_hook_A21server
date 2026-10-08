@@ -26,5 +26,6 @@ add_library(A21hook SHARED
 target_link_libraries(A21hook PRIVATE minhook ws2_32 comctl32)
 target_include_directories(A21hook PRIVATE ${minhook_SOURCE_DIR}/include)
 
-# 注入器(控制台程序)
-add_executable(injector injector/injector.cpp)
+# 注入器(图形界面程序,WIN32 子系统,入口 wWinMain)
+add_executable(injector WIN32 injector/injector.cpp)
+target_link_libraries(injector PRIVATE comctl32 shell32 advapi32)

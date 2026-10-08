@@ -33,14 +33,16 @@ cmd(1) + type(2) + length(4=帧总长) + checksum(4) + seq(2) + extra(1) + body
 
 ## 使用
 
-1. 把 `injector.exe` 与 `A21hook.dll` 放在同一目录(或以 `-d` 指定 DLL 路径)。
-2. 以**管理员**运行 `injector.exe`,输入目标进程名(部分匹配)或 PID。
+1. 把 `injector.exe` 与 `A21hook.dll` 放在同一目录(或在界面里浏览指定 DLL 路径)。
+2. 运行 `injector.exe`(建议「以管理员运行」,界面内有提权按钮):
+   - 进程列表支持按名称/PID 关键字实时筛选;
+   - 选中目标进程,点「注入」或双击列表项;
 3. 注入成功后,目标进程内弹出 **A21 socket hook 控制台**窗口:
    - 目标程序连接远端端口 10011 时,日志区自动捕获并显示 `SOCKET` 句柄;
    - 输入 A、B,点击「发送」即按协议组包发出;cmd(默认 `0x15`)/type(默认 `0x0015`)/seq(默认 `3`)可改;
    - 所有经目标 SOCKET 的收发帧都会以 hex dump 显示在日志区。
 
-命令行方式:
+命令行静默注入(不弹主窗口,结果用消息框提示):
 
 ```
 injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
@@ -51,7 +53,7 @@ injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
 ```
 ├── CMakeLists.txt          # 顶层工程(强制 32 位,FetchContent 拉取 MinHook v1.3.3)
 ├── .github/workflows/      # CI:MSVC x86 构建 + 产物打包
-├── injector/injector.cpp   # 注入器
+├── injector/injector.cpp   # 图形化注入器(进程列表/筛选/注入/日志;支持 -p 静默注入)
 └── hookdll/
     ├── dllmain.cpp         # hooks + 控制窗口 + 发送逻辑
     └── gameproto.h         # game 协议组包(game_frame / make_body)
