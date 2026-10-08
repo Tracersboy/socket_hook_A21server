@@ -1,0 +1,31 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (x86)
+        run: cmake -B build -G "Visual Studio 17 2022" -A Win32
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/Release/injector.exe dist/
+          Copy-Item build/Release/A21hook.dll dist/
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: socket_hook_x86
+          path: dist/
