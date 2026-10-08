@@ -1,0 +1,47 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (x86)
+        # 不锁定 -G,让 CMake 自动选择 runner 上可用的最新 VS 生成器;-A Win32 强制 32 位
+        run: cmake -B build -A Win32
+
+      - name: Build Release
+        run: cmake --build build --config Release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/Release/injector.exe dist/
+          Copy-Item build/Release/A21hook.dll dist/
+          Compress-Archive -Path dist/* -DestinationPath socket_hook_x86.zip -Force
+          Get-ChildItem dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: socket_hook_x86
+          path: dist/
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release create $tag socket_hook_x86.zip `
+            --title "socket_hook_x86 $tag" `
+            --generate-notes `
+            --verify-tag

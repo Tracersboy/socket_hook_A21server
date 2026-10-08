@@ -21,12 +21,15 @@ cmd(1) + type(2) + length(4=帧总长) + checksum(4) + seq(2) + extra(1) + body
 - 服务端不校验 checksum / seq(checksum 填 0,extra 填 0)。
 - 发送 body 为 `struct.pack("<iiii", A, B, 0, 0)`,A、B 由界面输入。
 
-## 构建
+## 构建与发布
 
-不本地编译,全部由 GitHub Actions(Windows runner,Visual Studio 2022,**-A Win32**)构建:
+- push 到 `main`:Actions → **build** 工作流构建并上传产物 **socket_hook_x86**。
+- 推送 `v*` 标签(如 `v1.0.0`):Actions → **release** 工作流构建、打包并自动创建
+  GitHub Release,附 `socket_hook_x86.zip`。发布新版本只需:
 
-1. push 到 `main` 或手动触发 Actions → **build** 工作流。
-2. 从 run 页面下载产物 **socket_hook_x86**(含 `injector.exe` + `A21hook.dll`)。
+  ```
+  git tag v1.0.0 && git push origin v1.0.0
+  ```
 
 ## 使用
 
