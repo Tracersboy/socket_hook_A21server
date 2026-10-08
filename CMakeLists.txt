@@ -9,6 +9,11 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(MSVC)
+    # 源码为 UTF-8:告诉 MSVC 按 UTF-8 解析源码并生成正确的中文宽字符串字面量
+    add_compile_options(/utf-8)
+endif()
+
 include(FetchContent)
 FetchContent_Declare(
     minhook
