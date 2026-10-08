@@ -250,7 +250,7 @@ DWORD WINAPI ExpThread(LPVOID param) {
     if (got) LogHex(L"      hex:", r, 64);
 
     bool ok = got && r.size() >= 3 && r[0] == 0x01 && r[1] == 0x15 && r[2] == 0x00;
-    LogLine(ok ? L"[!] 0x0015 ACK 收到——请到服务器侧复核入包结果"
+    LogLine(ok ? L"[!] 0x0015 ACK 收到——请登录检查结果"
                : L"[x] 0x0015 ACK 未收到");
 
     closesocket(s);
@@ -297,9 +297,9 @@ void CreateControls(HWND hwnd) {
     g_edPort = edit(245, 12, 60, L"10011", IDC_PORT);
 
     label(320, 15, 40, L"账号:");
-    g_edMid = edit(360, 12, 100, L"wsw123", IDC_MID);
+    g_edMid = edit(360, 12, 100, L"", IDC_MID);
     label(470, 15, 40, L"密码:");
-    g_edPwd = edit(510, 12, 220, L"wsw123456", IDC_PWD);
+    g_edPwd = edit(510, 12, 220, L"", IDC_PWD);
 
     label(10, 47, 55, L"物品ID:");
     g_edItem = edit(60, 44, 100, L"29692", IDC_ITEM);
@@ -314,16 +314,10 @@ void CreateControls(HWND hwnd) {
                                reinterpret_cast<HMENU>(IDC_RUN), g_hinst, nullptr);
     SendMessageW(g_btnRun, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
-    HWND hint = CreateWindowExW(
-        0, L"STATIC",
-        L"BUY_ITEM(0x0015) 未校验上架关系 + 零价格入包验证 | 流程: banner→登录(seq=1)→选角(seq=2)→购买(seq=3)",
-        WS_CHILD | WS_VISIBLE, 10, 74, 720, 18, hwnd, nullptr, g_hinst, nullptr);
-    SendMessageW(hint, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-
     g_log = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"",
                             WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE |
                                 ES_READONLY | ES_AUTOVSCROLL,
-                            10, 96, 720, 330, hwnd,
+                            10, 76, 720, 350, hwnd,
                             reinterpret_cast<HMENU>(IDC_LOG), g_hinst, nullptr);
     SendMessageW(g_log, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 }
@@ -361,8 +355,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
             CreateControls(hwnd);
-            LogLine(L"就绪。默认目标 127.0.0.1:10011,物品 29692 x3,账号 wsw123。");
-            LogLine(L"仅限在你自己的服务器环境做漏洞验证。");
+            LogLine(L"就绪。");
             return 0;
         case WM_COMMAND:
             if (LOWORD(wp) == IDC_RUN && HIWORD(wp) == BN_CLICKED)
@@ -405,7 +398,7 @@ int APIENTRY wWinMain(HINSTANCE hinst, HINSTANCE, LPWSTR, int showCmd) {
     wc.hIconSm = LoadIconW(nullptr, IDI_APPLICATION);
     if (!RegisterClassExW(&wc)) return 1;
 
-    g_hwnd = CreateWindowExW(0, kClassName, L"exp_buy_item — BUY_ITEM PoC 客户端 (A21)",
+    g_hwnd = CreateWindowExW(0, kClassName, L"PoC",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
                              CW_USEDEFAULT, CW_USEDEFAULT, 756, 480,
                              nullptr, nullptr, hinst, nullptr);
