@@ -93,7 +93,7 @@ void LogFmt(const wchar_t* fmt, ...) {
     LogLine(buf);
 }
 
-void LogHex(const char* prefix, const std::vector<uint8_t>& data, size_t maxBytes = 64) {
+void LogHex(const wchar_t* prefix, const std::vector<uint8_t>& data, size_t maxBytes = 64) {
     std::wstring hex;
     size_t n = (std::min)(data.size(), maxBytes);
     wchar_t tmp[4];
