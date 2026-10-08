@@ -49,13 +49,26 @@ cmd(1) + type(2) + length(4=帧总长) + checksum(4) + seq(2) + extra(1) + body
 injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
 ```
 
+## 子项目:exp_buy_item(独立 PoC 客户端,无 hook)
+
+`expclient/exp_buy_item.cpp` 是 `exp_buy_item.py` 的 C++/Win32 图形化重写:不注入、不 hook,
+独立 TCP 直连服务器,验证 BUY_ITEM(0x0015) 未校验商品上架关系 + 零价格免费入包漏洞
+(仅限服务器所有者在自己的环境验证)。
+
+- 界面输入(HOST / 端口 / 账号 / 密码哈希 / 物品ID / 数量)即 Python 版的可变参数,均有默认值;
+- 流程与原版一致:banner → LOGIN(seq=1) → SELECT_CHAR slot=0(seq=2) → 排空同步包 →
+  BUY_ITEM(seq=3,body=`<iiii>` itemId,count,0,0) → 等待 0x0015 ACK,末尾打印复核 SQL;
+- 单 exe,32 位,后台线程执行,日志区实时显示收发。
+
 ## 目录结构
 
 ```
-├── CMakeLists.txt          # 顶层工程(强制 32 位,FetchContent 拉取 MinHook v1.3.3)
-├── .github/workflows/      # CI:MSVC x86 构建 + 产物打包
+├── CMakeLists.txt          # 顶层工程(强制 32 位,FetchContent 拉取 MinHook v1.3.4)
+├── .github/workflows/      # CI:MSVC x86 构建 + 产物打包;v* 标签自动发 Release
 ├── injector/injector.cpp   # 图形化注入器(进程列表/筛选/注入/日志;支持 -p 静默注入)
-└── hookdll/
-    ├── dllmain.cpp         # hooks + 控制窗口 + 发送逻辑
-    └── gameproto.h         # game 协议组包(game_frame / make_body)
+├── hookdll/
+│   ├── dllmain.cpp         # hooks + 控制窗口 + 发送逻辑
+│   └── gameproto.h         # game 协议组包(game_frame / make_body),exp_buy_item 复用
+└── expclient/
+    └── exp_buy_item.cpp    # 独立 PoC 客户端图形版(BUY_ITEM 0x0015 验证)
 ```

@@ -34,3 +34,9 @@ target_include_directories(A21hook PRIVATE ${minhook_SOURCE_DIR}/include)
 # 注入器(图形界面程序,WIN32 子系统,入口 wWinMain)
 add_executable(injector WIN32 injector/injector.cpp)
 target_link_libraries(injector PRIVATE comctl32 shell32 advapi32)
+
+# exp_buy_item:独立 TCP 客户端版 PoC 的图形化重写(无需 hook/DLL 注入)
+# 复用 hookdll/gameproto.h 的组包逻辑
+add_executable(exp_buy_item WIN32 expclient/exp_buy_item.cpp)
+target_link_libraries(exp_buy_item PRIVATE ws2_32)
+target_include_directories(exp_buy_item PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hookdll)

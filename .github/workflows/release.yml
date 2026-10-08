@@ -26,6 +26,7 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item build/Release/injector.exe dist/
           Copy-Item build/Release/A21hook.dll dist/
+          Copy-Item build/Release/exp_buy_item.exe dist/
           Compress-Archive -Path dist/* -DestinationPath socket_hook_x86.zip -Force
           Get-ChildItem dist
 
