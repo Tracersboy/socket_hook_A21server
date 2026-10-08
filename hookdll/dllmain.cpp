@@ -8,6 +8,12 @@
 //
 // 仅用于你自己拥有或获授权的环境/服务器上的安全测试。
 
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
