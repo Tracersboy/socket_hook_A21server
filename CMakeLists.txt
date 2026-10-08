@@ -39,4 +39,10 @@ target_link_libraries(injector PRIVATE comctl32 shell32 advapi32)
 # 复用 hookdll/gameproto.h 的组包逻辑
 add_executable(exp_buy_item WIN32 expclient/exp_buy_item.cpp)
 target_link_libraries(exp_buy_item PRIVATE ws2_32)
-target_include_directories(exp_buy_item PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hookdll)
+target_include_directories(exp_buy_item PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/hookdll
+    ${CMAKE_CURRENT_SOURCE_DIR}/expclient)
+
+# 口令哈希自检:derive("wsw123","wsw123456") 必须等于已知向量,CI 每次构建都跑
+add_executable(hash_selftest expclient/hash_selftest.cpp)
+target_include_directories(hash_selftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/expclient)

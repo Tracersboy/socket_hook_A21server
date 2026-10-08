@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "gameproto.h"
+#include "pbkdf2_sha256.h"
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -67,7 +68,7 @@ struct ExpParams {
     std::wstring host;
     int port;
     std::wstring mid;
-    std::wstring pwdHash;
+    std::wstring pwd;      // 明文密码,发送前本地计算 PBKDF2 hash
     long itemId;
     long count;
     long slot;
@@ -173,7 +174,7 @@ DWORD WINAPI ExpThread(LPVOID param) {
 
     std::string hostA(prm.host.begin(), prm.host.end());
     std::string midA(prm.mid.begin(), prm.mid.end());
-    std::string pwdA(prm.pwdHash.begin(), prm.pwdHash.end());
+    std::string pwdA(prm.pwd.begin(), prm.pwd.end());
 
     sockaddr_in addr;
     addr.sin_family = AF_INET;
@@ -209,11 +210,13 @@ DWORD WINAPI ExpThread(LPVOID param) {
     RecvQuiet(s, r, 3000, 600);
     LogFmt(L"[<-] banner %zuB", r.size());
 
-    // 1) 登录:直接传存储的 passwordHash(pass-the-hash,服务端做字符串比较)
+    // 1) 登录:本地由 账号+明文密码 计算 PBKDF2 hash(pass-the-hash,服务端做字符串比较)
+    std::string hashHex = a21hash::Derive(midA, pwdA);
+    LogFmt(L"[*] derived hash: %S", hashHex.c_str());
     std::vector<uint8_t> loginBody = DStr(midA);
     {
-        std::vector<uint8_t> pwd = DStr(pwdA);
-        loginBody.insert(loginBody.end(), pwd.begin(), pwd.end());
+        std::vector<uint8_t> h = DStr(hashHex);
+        loginBody.insert(loginBody.end(), h.begin(), h.end());
     }
     if (!SendAll(s, proto::game_frame(T_LOGIN, loginBody, 1))) {
         LogLine(L"[!] 登录帧发送失败");
@@ -295,8 +298,8 @@ void CreateControls(HWND hwnd) {
 
     label(320, 15, 40, L"账号:");
     g_edMid = edit(360, 12, 100, L"wsw123", IDC_MID);
-    label(470, 15, 80, L"密码哈希:");
-    g_edPwd = edit(550, 12, 180, L"9a01adb03d863718c3e8c9c4c1821965", IDC_PWD);
+    label(470, 15, 40, L"密码:");
+    g_edPwd = edit(510, 12, 220, L"wsw123456", IDC_PWD);
 
     label(10, 47, 55, L"物品ID:");
     g_edItem = edit(60, 44, 100, L"29692", IDC_ITEM);
@@ -336,8 +339,8 @@ void RunExp() {
         GetEditInt(g_edCount, 3),
         GetEditInt(g_edSlot, 0),
     };
-    if (p->host.empty() || p->mid.empty() || p->pwdHash.empty()) {
-        LogLine(L"[!] HOST / 账号 / 密码哈希 不能为空。");
+    if (p->host.empty() || p->mid.empty() || p->pwd.empty()) {
+        LogLine(L"[!] HOST / 账号 / 密码 不能为空。");
         delete p;
         return;
     }

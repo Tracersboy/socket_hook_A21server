@@ -20,6 +20,9 @@ jobs:
       - name: Build Release
         run: cmake --build build --config Release
 
+      - name: Hash self-test (PBKDF2 known-answer)
+        run: ./build/Release/hash_selftest.exe
+
       - name: Package
         shell: pwsh
         run: |

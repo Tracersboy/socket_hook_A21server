@@ -55,7 +55,10 @@ injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
 独立 TCP 直连服务器,验证 BUY_ITEM(0x0015) 未校验商品上架关系 + 零价格免费入包漏洞
 (仅限服务器所有者在自己的环境验证)。
 
-- 界面输入(HOST / 端口 / 账号 / 密码哈希 / 物品ID / 数量 / 选角slot)即 Python 版的可变参数,均有默认值;
+- 界面输入(HOST / 端口 / 账号 / **明文密码** / 物品ID / 数量 / 选角slot)即 Python 版的可变参数,均有默认值;
+- 密码不存哈希:客户端本地按 `a21-pbkdf2-sha256-v1`(salt=SHA256(PREFIX+"\0"+账号)[:16],
+  PBKDF2-HMAC-SHA256,210000 轮,16B)计算,纯 C++ 实现(`expclient/pbkdf2_sha256.h`),
+  CI 每次构建跑已知向量自检 `derive("wsw123","wsw123456")=9a01adb0…1965`;
 - 流程与原版一致:banner → LOGIN(seq=1) → SELECT_CHAR(seq=2,slot 可改) → 排空同步包 →
   BUY_ITEM(seq=3,body=`<iiii>` itemId,count,0,0) → 等待 0x0015 ACK;
 - 单 exe,32 位,后台线程执行,日志区实时显示收发。
@@ -70,5 +73,7 @@ injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
 │   ├── dllmain.cpp         # hooks + 控制窗口 + 发送逻辑
 │   └── gameproto.h         # game 协议组包(game_frame / make_body),exp_buy_item 复用
 └── expclient/
-    └── exp_buy_item.cpp    # 独立 PoC 客户端图形版(BUY_ITEM 0x0015 验证)
+    ├── exp_buy_item.cpp    # 独立 PoC 客户端图形版(BUY_ITEM 0x0015 验证)
+    ├── pbkdf2_sha256.h     # A21 口令哈希纯 C++ 实现(SHA-256/HMAC/PBKDF2)
+    └── hash_selftest.cpp   # 口令哈希已知向量自检(CI 每构建必跑)
 ```
