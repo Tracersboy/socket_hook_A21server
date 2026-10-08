@@ -55,9 +55,9 @@ injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
 独立 TCP 直连服务器,验证 BUY_ITEM(0x0015) 未校验商品上架关系 + 零价格免费入包漏洞
 (仅限服务器所有者在自己的环境验证)。
 
-- 界面输入(HOST / 端口 / 账号 / 密码哈希 / 物品ID / 数量)即 Python 版的可变参数,均有默认值;
-- 流程与原版一致:banner → LOGIN(seq=1) → SELECT_CHAR slot=0(seq=2) → 排空同步包 →
-  BUY_ITEM(seq=3,body=`<iiii>` itemId,count,0,0) → 等待 0x0015 ACK,末尾打印复核 SQL;
+- 界面输入(HOST / 端口 / 账号 / 密码哈希 / 物品ID / 数量 / 选角slot)即 Python 版的可变参数,均有默认值;
+- 流程与原版一致:banner → LOGIN(seq=1) → SELECT_CHAR(seq=2,slot 可改) → 排空同步包 →
+  BUY_ITEM(seq=3,body=`<iiii>` itemId,count,0,0) → 等待 0x0015 ACK;
 - 单 exe,32 位,后台线程执行,日志区实时显示收发。
 
 ## 目录结构
