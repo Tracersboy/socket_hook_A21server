@@ -19,6 +19,7 @@ cmd(1) + type(2) + length(4=帧总长) + checksum(4) + seq(2) + extra(1) + body
 
 - 小端,header 共 14 字节;`length` 必须 = 帧总长(14 + len(body))。
 - 服务端不校验 checksum / seq(checksum 填 0,extra 填 0)。
+- 本项目固定值:**cmd=0x01,type=0x0015,seq=3**。
 - 发送 body 为 `struct.pack("<iiii", A, B, 0, 0)`,A、B 由界面输入。
 
 ## 构建与发布
@@ -39,7 +40,7 @@ cmd(1) + type(2) + length(4=帧总长) + checksum(4) + seq(2) + extra(1) + body
    - 选中目标进程,点「注入」或双击列表项;
 3. 注入成功后,目标进程内弹出 **A21 socket hook 控制台**窗口:
    - 目标程序连接远端端口 10011 时,日志区自动捕获并显示 `SOCKET` 句柄;
-   - 输入 A、B,点击「发送」即按协议组包发出;cmd(默认 `0x15`)/type(默认 `0x0015`)/seq(默认 `3`)可改;
+   - 输入 A、B,点击「发送」即按协议组包发出(cmd=0x01 / type=0x0015 / seq=3 为固定值,见 `gameproto.h`);
    - 所有经目标 SOCKET 的收发帧都会以 hex dump 显示在日志区。
 
 命令行静默注入(不弹主窗口,结果用消息框提示):

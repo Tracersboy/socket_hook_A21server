@@ -21,11 +21,11 @@ namespace proto {
 inline constexpr uint8_t kHeaderSize = 14;
 
 // 组一帧 game 包。
-//   cmd   - 1 字节命令字(默认 0x15,可在界面修改)
-//   ptype - 2 字节类型(对应 Python 例子的 0x0015)
-//   seq   - 2 字节序号(服务端不校验)
+//   cmd   - 1 字节命令字,本项目固定 0x01
+//   ptype - 2 字节类型,本项目固定 0x0015
+//   seq   - 2 字节序号,本项目固定 3(服务端不校验)
 inline std::vector<uint8_t> game_frame(uint16_t ptype, const std::vector<uint8_t>& body,
-                                       uint16_t seq = 0, uint8_t cmd = 0x15) {
+                                       uint16_t seq = 0, uint8_t cmd = 0x01) {
     const uint32_t total = kHeaderSize + static_cast<uint32_t>(body.size());
     std::vector<uint8_t> out;
     out.reserve(total);

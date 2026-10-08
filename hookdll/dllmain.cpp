@@ -51,9 +51,6 @@ HWND g_hwnd = nullptr;
 HWND g_log = nullptr;
 HWND g_edA = nullptr;
 HWND g_edB = nullptr;
-HWND g_edCmd = nullptr;
-HWND g_edType = nullptr;
-HWND g_edSeq = nullptr;
 
 constexpr wchar_t kClassName[] = L"A21SockHookWindow";
 constexpr int IDC_SEND = 1001;
@@ -275,16 +272,14 @@ long GetEditInt(HWND edit, long defValue) {
     return (end && end != buf) ? v : defValue;
 }
 
-void SetEditText(HWND edit, const wchar_t* text) {
-    SetWindowTextW(edit, text);
-}
-
 void DoSendFrame() {
     int32_t a = static_cast<int32_t>(GetEditInt(g_edA, 0));
     int32_t b = static_cast<int32_t>(GetEditInt(g_edB, 0));
-    uint8_t cmd = static_cast<uint8_t>(GetEditInt(g_edCmd, 0x15) & 0xFF);
-    uint16_t ptype = static_cast<uint16_t>(GetEditInt(g_edType, 0x0015) & 0xFFFF);
-    uint16_t seq = static_cast<uint16_t>(GetEditInt(g_edSeq, 3) & 0xFFFF);
+
+    // 协议固定值:cmd=0x01, type=0x0015, seq=3
+    constexpr uint8_t cmd = 0x01;
+    constexpr uint16_t ptype = 0x0015;
+    constexpr uint16_t seq = 3;
 
     auto body = proto::make_body(a, b);
     auto frame = proto::game_frame(ptype, body, seq, cmd);
@@ -328,11 +323,8 @@ void CreateControls(HWND hwnd) {
         return h;
     };
 
-    label(10, 12, 40, L"A:");       g_edA = edit(35, 10, 80, L"0");
-    label(125, 12, 40, L"B:");      g_edB = edit(150, 10, 80, L"0");
-    label(240, 12, 45, L"cmd:");    g_edCmd = edit(280, 10, 45, L"0x15");
-    label(335, 12, 45, L"type:");   g_edType = edit(375, 10, 60, L"0x0015");
-    label(445, 12, 40, L"seq:");    g_edSeq = edit(480, 10, 45, L"3");
+    label(10, 12, 40, L"A:");       g_edA = edit(35, 10, 100, L"0");
+    label(150, 12, 40, L"B:");      g_edB = edit(175, 10, 100, L"0");
 
     HWND btn = CreateWindowExW(0, L"BUTTON", L"发送",
                                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
@@ -342,7 +334,7 @@ void CreateControls(HWND hwnd) {
     SendMessageW(btn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
     HWND hint = CreateWindowExW(0, L"STATIC",
-        L"组包: cmd(1)+type(2)+len(4=帧总长)+checksum(4=0)+seq(2)+extra(1=0)+body(<iiii) A,B,0,0",
+        L"固定: cmd=0x01 type=0x0015 seq=3 | 帧: cmd(1)+type(2)+len(4=帧总长)+checksum(4=0)+seq(2)+extra(1=0)+body(<iiii) A,B,0,0",
         WS_CHILD | WS_VISIBLE, 100, 46, 640, 18, hwnd, nullptr, g_hinst, nullptr);
     SendMessageW(hint, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
 
