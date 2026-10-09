@@ -5,7 +5,7 @@
 //   salt = SHA256(PREFIX + "\0" + account.strip().lower())[:16]
 //   hash = PBKDF2-HMAC-SHA256(password_utf8, salt, 210000, dklen=16).hex()
 //
-// 校验向量:derive("wsw123", "wsw123456") == "9a01adb03d863718c3e8c9c4c1821965"
+// 校验向量:derive("demo", "demo123456") == "3fa6167e893745d4be5febeca85f6bc7"
 // (见 hash_selftest.cpp,CI 每次构建都会跑)
 #pragma once
 

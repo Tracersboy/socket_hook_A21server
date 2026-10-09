@@ -58,7 +58,7 @@ injector.exe -p <进程名|PID> [-d C:\path\A21hook.dll]
 - 界面输入(HOST / 端口 / 账号 / **明文密码** / 物品ID / 数量 / 选角slot)即 Python 版的可变参数,均有默认值;
 - 密码不存哈希:客户端本地按 `a21-pbkdf2-sha256-v1`(salt=SHA256(PREFIX+"\0"+账号)[:16],
   PBKDF2-HMAC-SHA256,210000 轮,16B)计算,纯 C++ 实现(`expclient/pbkdf2_sha256.h`),
-  CI 每次构建跑已知向量自检 `derive("wsw123","wsw123456")=9a01adb0…1965`;
+  CI 每次构建跑已知向量自检 `derive("demo","demo123456")=3fa6167e…6bc7`;
 - 流程与原版一致:banner → LOGIN(seq=1) → SELECT_CHAR(seq=2,slot 可改) → 排空同步包 →
   BUY_ITEM(seq=3,body=`<iiii>` itemId,count,0,0) → 等待 0x0015 ACK;
 - 单 exe,32 位,后台线程执行,日志区实时显示收发。

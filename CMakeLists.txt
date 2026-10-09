@@ -51,6 +51,6 @@ target_include_directories(cargo_dupe PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/hookdll
     ${CMAKE_CURRENT_SOURCE_DIR}/expclient)
 
-# 口令哈希自检:derive("wsw123","wsw123456") 必须等于已知向量,CI 每次构建都跑
+# 口令哈希自检:derive("demo","demo123456") 必须等于已知向量,CI 每次构建都跑
 add_executable(hash_selftest expclient/hash_selftest.cpp)
 target_include_directories(hash_selftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/expclient)
