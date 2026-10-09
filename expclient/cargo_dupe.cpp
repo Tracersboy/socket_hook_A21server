@@ -344,10 +344,10 @@ struct Session {
 
     bool ConnectAndLogin() {
         stateFresh = false;
-        std::string hostA = HostA();
+        std::string hostA = HostA_;
         sockaddr_in addr;
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(static_cast<u_short>(Port()));
+        addr.sin_port = htons(static_cast<u_short>(Port_));
         if (InetPtonA(AF_INET, hostA.c_str(), &addr.sin_addr) != 1) {
             LogLine(L"[!] HOST 解析失败(需要 IPv4 地址,如 127.0.0.1)");
             return false;
