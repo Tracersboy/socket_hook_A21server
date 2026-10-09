@@ -752,8 +752,8 @@ void RunItem(int32_t target) {
         LogLine(L"[item] kind 探测失败: 背包各分区均无空槽");
         return;
     }
-    LogFmt(L"[item] 探测得 kind=%d(区间 %d-%d)", kind, KIND_RANGE[kind].first,
-           KIND_RANGE[kind].second);
+    LogFmt(L"[item] 探测得 kind=%d(区间 %d-%d)", kind, KIND_RANGE.at(kind).first,
+           KIND_RANGE.at(kind).second);
     B->Reselect();
 
     // 可堆叠校验(数量≥2 时可逆检测;数量==1 由增长轮停滞保护兜底)
