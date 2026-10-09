@@ -28,6 +28,7 @@ jobs:
           Copy-Item build/Release/injector.exe dist/
           Copy-Item build/Release/A21hook.dll dist/
           Copy-Item build/Release/exp_buy_item.exe dist/
+          Copy-Item build/Release/cargo_dupe.exe dist/
           Get-ChildItem dist
 
       - uses: actions/upload-artifact@v4

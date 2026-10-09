@@ -30,6 +30,7 @@ jobs:
           Copy-Item build/Release/injector.exe dist/
           Copy-Item build/Release/A21hook.dll dist/
           Copy-Item build/Release/exp_buy_item.exe dist/
+          Copy-Item build/Release/cargo_dupe.exe dist/
           Compress-Archive -Path dist/* -DestinationPath socket_hook_x86.zip -Force
           Get-ChildItem dist
 

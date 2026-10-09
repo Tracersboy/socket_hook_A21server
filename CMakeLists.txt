@@ -43,6 +43,14 @@ target_include_directories(exp_buy_item PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/hookdll
     ${CMAKE_CURRENT_SOURCE_DIR}/expclient)
 
+# cargo_dupe:账号金库(AccountCargo)金币/物品复制 PoC 的图形化重写
+# 状态全部来自服务端回包(ITEM_LIST/ack),不读数据库;逻辑对齐 expclient/../cargo_maxexp.py
+add_executable(cargo_dupe WIN32 expclient/cargo_dupe.cpp)
+target_link_libraries(cargo_dupe PRIVATE ws2_32)
+target_include_directories(cargo_dupe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/hookdll
+    ${CMAKE_CURRENT_SOURCE_DIR}/expclient)
+
 # 口令哈希自检:derive("wsw123","wsw123456") 必须等于已知向量,CI 每次构建都跑
 add_executable(hash_selftest expclient/hash_selftest.cpp)
 target_include_directories(hash_selftest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/expclient)
